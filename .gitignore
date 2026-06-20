@@ -15,7 +15,8 @@ hs_err_pid*
 replay_pid*
 
 # Runtime config (создаётся приложением в рабочей директории)
-clickercat.yaml
+clickercat.cfg.yaml
+clickercat.cfg.yaml.bak
 
 # IDE
 .idea/
