@@ -164,6 +164,7 @@ public class ConfigStore {
             keys.add(bindingToMap(kb));
         }
         root.put("keys", keys);
+        root.put("alwaysOnTop", c.alwaysOnTop);
         return root;
     }
 
@@ -186,6 +187,7 @@ public class ConfigStore {
         c.mode = parseMode(map.get("mode"));
         c.delayMs = parseDelay(map.get("delayMs"));
         c.keys = parseKeys(map.get("keys"));
+        c.alwaysOnTop = parseAlwaysOnTop(map.get("alwaysOnTop"));
         return c;
     }
 
@@ -227,6 +229,11 @@ public class ConfigStore {
                     + ".." + Config.MAX_DELAY_MS + ": " + delay);
         }
         return delay;
+    }
+
+    /** Необязательное поле (добавлено позже): отсутствие трактуется как false для совместимости. */
+    private static boolean parseAlwaysOnTop(Object value) {
+        return value instanceof Boolean b && b;
     }
 
     private static List<KeyBinding> parseKeys(Object value) throws InvalidConfigException {

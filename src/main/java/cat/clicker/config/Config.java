@@ -69,6 +69,8 @@ public class Config {
     public Mode mode;
     public int delayMs;
     public List<KeyBinding> keys = new ArrayList<>();
+    /** Держать главное окно поверх всех остальных окон. */
+    public boolean alwaysOnTop;
 
     public static final int MIN_DELAY_MS = 0;
     public static final int MAX_DELAY_MS = 10_000;
@@ -83,6 +85,7 @@ public class Config {
         c.delayMs = DEFAULT_DELAY_MS;
         c.keys = new ArrayList<>();
         c.keys.add(new KeyBinding(InputType.MOUSE, "BUTTON1"));
+        c.alwaysOnTop = false;
         return c;
     }
 
@@ -94,6 +97,7 @@ public class Config {
         c.mode = mode;
         c.delayMs = delayMs;
         c.keys = new ArrayList<>(keys);
+        c.alwaysOnTop = alwaysOnTop;
         return c;
     }
 }

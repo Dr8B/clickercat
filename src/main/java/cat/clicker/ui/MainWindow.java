@@ -13,6 +13,7 @@ import javax.swing.ButtonGroup;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -23,13 +24,26 @@ import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
-import java.awt.BorderLayout;
+import java.awt.AWTException;
+import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.Frame;
+import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.Image;
 import java.awt.Insets;
+import java.awt.MenuItem;
+import java.awt.PopupMenu;
+import java.awt.RenderingHints;
+import java.awt.SystemTray;
+import java.awt.TrayIcon;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.util.List;
 import java.util.function.Consumer;
@@ -60,6 +74,14 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
     private final JButton removeKeyBtn = new JButton("Удалить");
     private final JLabel statusLabel = new JLabel();
     private final JButton startStopBtn = new JButton("Старт/Стоп");
+    private final JCheckBox alwaysOnTopCheck = new JCheckBox("Поверх всех окон");
+
+    /** Значок в системном трее; null, если трей не поддерживается ОС. */
+    private TrayIcon trayIcon;
+    private MenuItem trayWindowItem;
+    private MenuItem trayClickerItem;
+    private Image iconActive;
+    private Image iconInactive;
 
     /** Последнее валидное значение задержки — для отката неверного ввода (§3.6). */
     private int lastValidDelay;
@@ -80,6 +102,7 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         buildUi();
+        setupTray();
         loadFromConfig();
 
         hotkeys.setListener(this);
@@ -142,6 +165,14 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         c.gridx = 1;
         c.gridwidth = 2;
         root.add(delayPanel, c);
+        c.gridwidth = 1;
+        row++;
+
+        // Поверх всех окон
+        c.gridx = 0;
+        c.gridy = row;
+        c.gridwidth = 3;
+        root.add(alwaysOnTopCheck, c);
         c.gridwidth = 1;
         row++;
 
@@ -211,14 +242,24 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
             }
         });
 
-        startStopBtn.addActionListener(e -> {
-            if (clicker.isRunning()) {
-                clicker.stop();
-            } else {
-                clicker.start(currentKeys(), config.delayMs);
-            }
-            updateStatus();
+        startStopBtn.addActionListener(e -> toggleClicker());
+
+        alwaysOnTopCheck.addActionListener(e -> {
+            boolean on = alwaysOnTopCheck.isSelected();
+            setAlwaysOnTop(on);
+            config.alwaysOnTop = on;
+            persist();
         });
+    }
+
+    /** Переключить кликер вручную (кнопка/трей) и обновить состояние UI. */
+    private void toggleClicker() {
+        if (clicker.isRunning()) {
+            clicker.stop();
+        } else {
+            clicker.start(currentKeys(), config.delayMs);
+        }
+        updateStatus();
     }
 
     private static JComponent boxed(JLabel label) {
@@ -246,6 +287,8 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         holdRadio.setSelected(config.mode == Mode.HOLD);
         toggleRadio.setSelected(config.mode == Mode.TOGGLE);
         delayField.setText(Integer.toString(config.delayMs));
+        alwaysOnTopCheck.setSelected(config.alwaysOnTop);
+        setAlwaysOnTop(config.alwaysOnTop);
         keysModel.clear();
         for (KeyBinding kb : config.keys) {
             keysModel.addElement(kb);
@@ -394,6 +437,122 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         boolean running = clicker.isRunning();
         statusLabel.setText("Статус: " + (running ? "Активен" : "Остановлен"));
         startStopBtn.setText(running ? "Стоп" : "Старт");
+        updateTray(running);
+    }
+
+    // ---- системный трей -----------------------------------------------------
+
+    /** Создать значок в трее с меню; молча пропускается, если трей не поддерживается. */
+    private void setupTray() {
+        if (!SystemTray.isSupported()) {
+            return;
+        }
+        Dimension size = SystemTray.getSystemTray().getTrayIconSize();
+        iconActive = makeIcon(size.width, size.height, true);
+        iconInactive = makeIcon(size.width, size.height, false);
+
+        PopupMenu menu = new PopupMenu();
+        trayWindowItem = new MenuItem("Скрыть окно");
+        trayWindowItem.addActionListener(e -> SwingUtilities.invokeLater(this::toggleWindow));
+        trayClickerItem = new MenuItem("Старт");
+        trayClickerItem.addActionListener(e -> SwingUtilities.invokeLater(this::toggleClicker));
+        MenuItem exitItem = new MenuItem("Выход");
+        exitItem.addActionListener(e -> System.exit(0));
+        menu.add(trayWindowItem);
+        menu.add(trayClickerItem);
+        menu.addSeparator();
+        menu.add(exitItem);
+
+        trayIcon = new TrayIcon(iconInactive, "ClickerCat — остановлен", menu);
+        trayIcon.setImageAutoSize(true);
+        // Двойной клик по значку — показать/поднять окно.
+        trayIcon.addActionListener(e -> SwingUtilities.invokeLater(this::showWindow));
+
+        try {
+            SystemTray.getSystemTray().add(trayIcon);
+        } catch (AWTException e) {
+            trayIcon = null;
+            return;
+        }
+
+        // С треем закрытие окна прячет его, а не завершает приложение (выход — через меню).
+        setDefaultCloseOperation(JFrame.HIDE_ON_CLOSE);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                hideToTray();
+            }
+        });
+    }
+
+    private void updateTray(boolean running) {
+        if (trayIcon == null) {
+            return;
+        }
+        trayIcon.setImage(running ? iconActive : iconInactive);
+        trayIcon.setToolTip("ClickerCat — " + (running ? "активен" : "остановлен"));
+        if (trayClickerItem != null) {
+            trayClickerItem.setLabel(running ? "Стоп" : "Старт");
+        }
+    }
+
+    private void toggleWindow() {
+        if (isVisible()) {
+            hideToTray();
+        } else {
+            showWindow();
+        }
+    }
+
+    private void showWindow() {
+        setVisible(true);
+        setExtendedState(getExtendedState() & ~Frame.ICONIFIED);
+        toFront();
+        requestFocus();
+        if (trayWindowItem != null) {
+            trayWindowItem.setLabel("Скрыть окно");
+        }
+    }
+
+    private void hideToTray() {
+        setVisible(false);
+        if (trayWindowItem != null) {
+            trayWindowItem.setLabel("Показать окно");
+        }
+    }
+
+    /** Нарисовать простой значок-кота: зелёный — активен, серый — остановлен. */
+    private static Image makeIcon(int w, int h, boolean active) {
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        Color body = active ? new Color(0x3C, 0xB3, 0x71) : new Color(0x9E, 0x9E, 0x9E);
+        g.setColor(body);
+
+        // Уши — два треугольника сверху.
+        int earH = Math.round(h * 0.32f);
+        int earW = Math.round(w * 0.30f);
+        int top = Math.round(h * 0.12f);
+        g.fillPolygon(new int[]{w / 5, w / 5 + earW, w / 5}, new int[]{top + earH, top + earH, top}, 3);
+        g.fillPolygon(new int[]{w - w / 5, w - w / 5 - earW, w - w / 5},
+                new int[]{top + earH, top + earH, top}, 3);
+
+        // Голова — круг.
+        int d = Math.round(Math.min(w, h) * 0.66f);
+        int cx = (w - d) / 2;
+        int cy = h - d - Math.round(h * 0.06f);
+        g.fillOval(cx, cy, d, d);
+
+        // Глаза — две тёмные точки.
+        g.setColor(new Color(0x20, 0x20, 0x20));
+        int eye = Math.max(1, Math.round(d * 0.14f));
+        int eyeY = cy + Math.round(d * 0.42f);
+        g.fillOval(cx + Math.round(d * 0.28f) - eye / 2, eyeY, eye, eye);
+        g.fillOval(cx + Math.round(d * 0.72f) - eye / 2, eyeY, eye, eye);
+
+        g.dispose();
+        return img;
     }
 
     // ---- HotkeyService.Listener (вызовы НЕ на EDT) --------------------------
