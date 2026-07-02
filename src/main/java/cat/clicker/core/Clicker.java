@@ -105,6 +105,14 @@ public class Clicker {
                     // продолжаем отпускать остальные
                 }
             }
+            // Поток завершился (штатно, по ошибке или прерыванию) — снять флаг
+            // активности, но только если нас не подменил новый worker.
+            synchronized (lock) {
+                if (worker == Thread.currentThread()) {
+                    active = false;
+                    worker = null;
+                }
+            }
         }
     }
 
