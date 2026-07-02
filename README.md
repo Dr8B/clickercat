@@ -36,6 +36,73 @@ java -jar target/clickercat.jar
 - `clickercat.cfg.yaml` — текущие настройки;
 - `clickercat.cfg.yaml.bak` — резервная копия (перезаписывается перед каждым сохранением).
 
+## Разработка в WSL
+
+Проект можно собирать и отлаживать из WSL, но у запуска есть важное различие.
+
+**Запуск внутри WSL (WSLg).** Приложение запустится через `java -jar target/clickercat.jar`
+и покажет окно, но `Robot`-клики и глобальные хуки останутся внутри виртуального
+X-дисплея WSLg и **не влияют на реальный рабочий стол Windows** (системного трея в
+WSLg тоже нет). Это годится для отладки логики, но не для реального использования.
+Нужна системная либа:
+
+```sh
+sudo apt-get install -y libxkbcommon-x11-0
+```
+
+Профили для запуска/дебага внутри WSL — «ClickerCat (запуск)» и «ClickerCat (дебаг)»
+в `.vscode/launch.json`.
+
+**Запуск на Windows из WSL (рекомендуется для реального использования).** Чтобы клики
+и хоткеи работали в самой Windows, приложение запускается нативной Windows-джавой
+(`java.exe`) через WSL-interop:
+
+```sh
+scripts/run-win.sh          # собрать (если нужно) и запустить на Windows
+scripts/run-win.sh --build  # принудительно пересобрать + запустить
+scripts/run-win.sh --debug  # запуск с JDWP на :5005 для отладки
+```
+
+Скрипт копирует jar на локальный диск Windows — это обязательно, иначе jnativehook
+не может распаковать свою `.dll` с UNC-пути `\\wsl.localhost\...`. Требуется JDK,
+установленный на Windows, с `java.exe` в системном PATH.
+
+В VSCode те же действия доступны как задачи (Run Task) — см. `.vscode/tasks.json`,
+а профиль «ClickerCat (attach к Windows :5005)» цепляет отладчик к процессу на
+Windows. Для attach по `localhost` нужен режим mirrored networking в WSL2
+(`.wslconfig` → `networkingMode=mirrored`); иначе укажите в профиле IP Windows-хоста.
+
+### Mirrored networking (для attach-отладки)
+
+Файл `.wslconfig` лежит в профиле Windows — `C:\Users\<имя>\.wslconfig` (требуется
+Windows 11):
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+После правки `.wslconfig` нужно перезапустить WSL — параметры `[wsl2]` относятся ко
+всей виртуальной машине, поэтому перезапуска одного дистрибутива недостаточно:
+
+1. Закройте VSCode, подключённый к WSL, и все терминалы WSL (иначе сессия
+   поднимется обратно).
+2. В **PowerShell или CMD на Windows** (не внутри WSL) выполните:
+
+   ```powershell
+   wsl --shutdown
+   ```
+
+3. Подождите ~8 секунд и снова откройте WSL/VSCode — дистрибутив стартует с новыми
+   настройками.
+
+Проверить, что режим применился, можно так — в mirrored-режиме IP внутри WSL
+совпадает с адресами Windows-адаптеров (а не подсеть `172.x` от NAT):
+
+```sh
+ip addr show eth0 | grep inet
+```
+
 ## Известные ограничения и предупреждения
 
 ### Linux

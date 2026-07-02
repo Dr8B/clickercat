@@ -23,7 +23,10 @@ clickercat.cfg.yaml.bak
 *.iml
 *.ipr
 *.iws
-.vscode/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
 .settings/
 .project
 .classpath

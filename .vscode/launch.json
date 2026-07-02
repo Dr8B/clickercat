@@ -1,0 +1,32 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "ClickerCat (запуск)",
+            "request": "launch",
+            "mainClass": "cat.clicker.App",
+            "projectName": "clickercat",
+            "console": "integratedTerminal"
+        },
+        {
+            "type": "java",
+            "name": "ClickerCat (дебаг)",
+            "request": "launch",
+            "mainClass": "cat.clicker.App",
+            "projectName": "clickercat",
+            "console": "integratedTerminal",
+            "stopOnEntry": false,
+            "vmArgs": "-ea"
+        },
+        {
+            "type": "java",
+            "name": "ClickerCat (attach к Windows :5005)",
+            "request": "attach",
+            "hostName": "localhost",
+            "port": 5005,
+            "projectName": "clickercat",
+            "preLaunchTask": "ClickerCat: дебаг на Windows (JDWP :5005)"
+        }
+    ]
+}
