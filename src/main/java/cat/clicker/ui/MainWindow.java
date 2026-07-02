@@ -73,7 +73,7 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
     private final JButton addKeyBtn = new JButton("Добавить");
     private final JButton removeKeyBtn = new JButton("Удалить");
     private final JLabel statusLabel = new JLabel();
-    private final JButton startStopBtn = new JButton("Старт/Стоп");
+    private final JButton enableBtn = new JButton("Вкл/Выкл");
     private final JCheckBox alwaysOnTopCheck = new JCheckBox("Поверх всех окон");
 
     /** Значок в системном трее; null, если трей не поддерживается ОС. */
@@ -108,6 +108,7 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         hotkeys.setListener(this);
         hotkeys.setHotkey(config.hotkey);
         hotkeys.setEmergencyStop(config.emergencyStop);
+        hotkeys.setEnabled(config.enabled);
 
         if (!hotkeys.isRegistered()) {
             assignHotkeyBtn.setEnabled(false);
@@ -205,14 +206,14 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         root.add(removeKeyBtn, c);
         row += 2;
 
-        // Статус + Старт/Стоп
+        // Статус + Вкл/Выкл
         c.gridx = 0;
         c.gridy = row;
         c.gridwidth = 2;
         root.add(statusLabel, c);
         c.gridx = 2;
         c.gridwidth = 1;
-        root.add(startStopBtn, c);
+        root.add(enableBtn, c);
 
         setContentPane(root);
 
@@ -242,7 +243,7 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
             }
         });
 
-        startStopBtn.addActionListener(e -> toggleClicker());
+        enableBtn.addActionListener(e -> toggleEnabled());
 
         alwaysOnTopCheck.addActionListener(e -> {
             boolean on = alwaysOnTopCheck.isSelected();
@@ -252,13 +253,22 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         });
     }
 
-    /** Переключить кликер вручную (кнопка/трей) и обновить состояние UI. */
-    private void toggleClicker() {
-        if (clicker.isRunning()) {
+    /** Переключить главный выключатель механизма (кнопка/трей) и обновить UI. */
+    private void toggleEnabled() {
+        applyEnabled(!config.enabled);
+    }
+
+    /**
+     * Включить/выключить весь механизм автокликера. При выключении текущее кликанье
+     * останавливается, а горячие клавиши перестают срабатывать — приложение «на паузе».
+     */
+    private void applyEnabled(boolean on) {
+        config.enabled = on;
+        hotkeys.setEnabled(on);
+        if (!on) {
             clicker.stop();
-        } else {
-            clicker.start(currentKeys(), config.delayMs);
         }
+        persist();
         updateStatus();
     }
 
@@ -430,14 +440,16 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         holdRadio.setEnabled(enabled);
         toggleRadio.setEnabled(enabled);
         delayField.setEnabled(enabled);
-        startStopBtn.setEnabled(enabled);
+        enableBtn.setEnabled(enabled);
     }
 
     private void updateStatus() {
+        boolean on = config.enabled;
         boolean running = clicker.isRunning();
-        statusLabel.setText("Статус: " + (running ? "Активен" : "Остановлен"));
-        startStopBtn.setText(running ? "Стоп" : "Старт");
-        updateTray(running);
+        String state = !on ? "Отключён" : running ? "Активен" : "Ожидание";
+        statusLabel.setText("Статус: " + state);
+        enableBtn.setText(on ? "Выкл" : "Вкл");
+        updateTray(on);
     }
 
     // ---- системный трей -----------------------------------------------------
@@ -454,8 +466,8 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         PopupMenu menu = new PopupMenu();
         trayWindowItem = new MenuItem("Скрыть окно");
         trayWindowItem.addActionListener(e -> SwingUtilities.invokeLater(this::toggleWindow));
-        trayClickerItem = new MenuItem("Старт");
-        trayClickerItem.addActionListener(e -> SwingUtilities.invokeLater(this::toggleClicker));
+        trayClickerItem = new MenuItem("Выключить");
+        trayClickerItem.addActionListener(e -> SwingUtilities.invokeLater(this::toggleEnabled));
         MenuItem exitItem = new MenuItem("Выход");
         exitItem.addActionListener(e -> System.exit(0));
         menu.add(trayWindowItem);
@@ -463,7 +475,7 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         menu.addSeparator();
         menu.add(exitItem);
 
-        trayIcon = new TrayIcon(iconInactive, "ClickerCat — остановлен", menu);
+        trayIcon = new TrayIcon(iconInactive, "ClickerCat", menu);
         trayIcon.setImageAutoSize(true);
         // Двойной клик по значку — показать/поднять окно.
         trayIcon.addActionListener(e -> SwingUtilities.invokeLater(this::showWindow));
@@ -485,14 +497,14 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         });
     }
 
-    private void updateTray(boolean running) {
+    private void updateTray(boolean on) {
         if (trayIcon == null) {
             return;
         }
-        trayIcon.setImage(running ? iconActive : iconInactive);
-        trayIcon.setToolTip("ClickerCat — " + (running ? "активен" : "остановлен"));
+        trayIcon.setImage(on ? iconActive : iconInactive);
+        trayIcon.setToolTip("ClickerCat — " + (on ? "включён" : "отключён"));
         if (trayClickerItem != null) {
-            trayClickerItem.setLabel(running ? "Стоп" : "Старт");
+            trayClickerItem.setLabel(on ? "Выключить" : "Включить");
         }
     }
 

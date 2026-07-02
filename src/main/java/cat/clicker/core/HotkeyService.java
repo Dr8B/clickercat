@@ -37,6 +37,9 @@ public class HotkeyService implements NativeKeyListener, NativeMouseListener {
     private volatile Listener listener;
     private volatile Consumer<KeyBinding> captureCallback;
 
+    /** Главный выключатель: при {@code false} триггер и аварийная остановка не обрабатываются. */
+    private volatile boolean enabled = true;
+
     /** Уже зажатые привязки — для подавления автоповтора ОС. */
     private final Set<KeyBinding> down = new HashSet<>();
 
@@ -81,6 +84,18 @@ public class HotkeyService implements NativeKeyListener, NativeMouseListener {
     }
 
     /**
+     * Включить/выключить обработку триггера и аварийной остановки. Захват клавиш
+     * для назначения продолжает работать, чтобы настройки можно было менять и в паузе.
+     */
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    /**
      * Перехватить следующее нажатие клавиши/кнопки и вернуть его как {@link KeyBinding}.
      * Это нажатие не передаётся в обычную обработку (триггер/стоп).
      */
@@ -99,6 +114,11 @@ public class HotkeyService implements NativeKeyListener, NativeMouseListener {
         if (capture != null) {
             captureCallback = null;
             capture.accept(binding);
+            return;
+        }
+
+        // Главный выключатель: механизм приостановлен — триггер/стоп игнорируются.
+        if (!enabled) {
             return;
         }
 
@@ -127,6 +147,9 @@ public class HotkeyService implements NativeKeyListener, NativeMouseListener {
             down.remove(binding);
         }
         if (captureCallback != null) {
+            return;
+        }
+        if (!enabled) {
             return;
         }
         Listener l = listener;

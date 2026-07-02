@@ -165,6 +165,7 @@ public class ConfigStore {
         }
         root.put("keys", keys);
         root.put("alwaysOnTop", c.alwaysOnTop);
+        root.put("enabled", c.enabled);
         return root;
     }
 
@@ -188,6 +189,7 @@ public class ConfigStore {
         c.delayMs = parseDelay(map.get("delayMs"));
         c.keys = parseKeys(map.get("keys"));
         c.alwaysOnTop = parseAlwaysOnTop(map.get("alwaysOnTop"));
+        c.enabled = parseEnabled(map.get("enabled"));
         return c;
     }
 
@@ -234,6 +236,14 @@ public class ConfigStore {
     /** Необязательное поле (добавлено позже): отсутствие трактуется как false для совместимости. */
     private static boolean parseAlwaysOnTop(Object value) {
         return value instanceof Boolean b && b;
+    }
+
+    /**
+     * Необязательное поле (добавлено позже): отсутствие трактуется как {@code true},
+     * чтобы старые конфиги открывались с включённым кликером.
+     */
+    private static boolean parseEnabled(Object value) {
+        return !(value instanceof Boolean b) || b;
     }
 
     private static List<KeyBinding> parseKeys(Object value) throws InvalidConfigException {

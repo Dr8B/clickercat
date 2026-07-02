@@ -71,6 +71,11 @@ public class Config {
     public List<KeyBinding> keys = new ArrayList<>();
     /** Держать главное окно поверх всех остальных окон. */
     public boolean alwaysOnTop;
+    /**
+     * Главный выключатель всего механизма (§ кнопка «Вкл/Выкл»). Когда {@code false},
+     * кликер полностью приостановлен: горячие клавиши не срабатывают и не мешают работе.
+     */
+    public boolean enabled = true;
 
     public static final int MIN_DELAY_MS = 0;
     public static final int MAX_DELAY_MS = 10_000;
@@ -86,6 +91,7 @@ public class Config {
         c.keys = new ArrayList<>();
         c.keys.add(new KeyBinding(InputType.MOUSE, "BUTTON1"));
         c.alwaysOnTop = false;
+        c.enabled = true;
         return c;
     }
 
@@ -98,6 +104,7 @@ public class Config {
         c.delayMs = delayMs;
         c.keys = new ArrayList<>(keys);
         c.alwaysOnTop = alwaysOnTop;
+        c.enabled = enabled;
         return c;
     }
 }
