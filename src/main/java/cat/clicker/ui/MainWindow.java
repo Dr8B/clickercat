@@ -475,12 +475,12 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
             return;
         }
 
-        // С треем закрытие окна прячет его, а не завершает приложение (выход — через меню).
-        setDefaultCloseOperation(JFrame.HIDE_ON_CLOSE);
+        // С треем закрытие окна спрашивает: свернуть в трей или выйти (§4).
+        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
-                hideToTray();
+                confirmClose();
             }
         });
     }
@@ -518,6 +518,22 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         setVisible(false);
         if (trayWindowItem != null) {
             trayWindowItem.setLabel("Показать окно");
+        }
+    }
+
+    /** При закрытии окна спросить: свернуть в трей, выйти или отменить. */
+    private void confirmClose() {
+        Object[] options = {"Свернуть в трей", "Выйти", "Отмена"};
+        int choice = JOptionPane.showOptionDialog(this,
+                "Свернуть приложение в трей или полностью закрыть его?",
+                "Закрытие ClickerCat",
+                JOptionPane.YES_NO_CANCEL_OPTION,
+                JOptionPane.QUESTION_MESSAGE,
+                null, options, options[0]);
+        switch (choice) {
+            case JOptionPane.YES_OPTION -> hideToTray();
+            case JOptionPane.NO_OPTION -> System.exit(0);
+            default -> { /* Отмена / закрытие диалога — ничего не делаем */ }
         }
     }
 
