@@ -1,0 +1,39 @@
+# Taskfile для ClickerCat — аналог Taskfile из мира Go (https://taskfile.dev),
+# только вокруг Maven. Запуск: `task <имя>`, список задач: `task --list`.
+version: '3'
+
+vars:
+  # Имя собранного (shade) джарника из pom.xml (<finalName>clickercat</finalName>).
+  JAR: target/clickercat.jar
+  # Домашняя директория пользователя под Windows, доступная из WSL.
+  # Резолвим динамически через %USERPROFILE%, чтобы не хардкодить имя пользователя.
+  WIN_HOME:
+    sh: wslpath -u "$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r')"
+
+tasks:
+  default:
+    desc: Показать список доступных задач
+    cmds:
+      - task --list
+
+  build:
+    desc: Собрать проект (mvn clean package)
+    cmds:
+      - mvn clean package
+
+  clean:
+    desc: Очистить артефакты сборки (mvn clean)
+    cmds:
+      - mvn clean
+
+  test:
+    desc: Запустить тесты (mvn clean test)
+    cmds:
+      - mvn clean test
+
+  deploy:
+    desc: Собрать и скопировать джарник из WSL в домашнюю директорию Windows
+    deps: [build]
+    cmds:
+      - cp "{{.JAR}}" "{{.WIN_HOME}}/"
+      - echo ">> Скопировано в {{.WIN_HOME}}/clickercat.jar"
