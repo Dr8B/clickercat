@@ -37,6 +37,7 @@ import java.awt.Frame;
 import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.GridLayout;
 import java.awt.Image;
 import java.awt.Insets;
 import java.awt.MenuItem;
@@ -158,13 +159,25 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         compact(addKeyBtn, "Добавить клавишу");
         compact(removeKeyBtn, "Удалить выбранную клавишу (Delete)");
 
+        // Правая колонка кнопок — единой ширины (по самой широкой, «Вкл/Выкл»),
+        // чтобы края выстроились по вертикали.
+        sameWidth(renameProfileBtn, assignHotkeyBtn, assignEmergencyBtn,
+                addKeyBtn, removeKeyBtn, enableBtn);
+
+        // «+» и «−» стоят слева от выпадающего списка, в одной ячейке с ним, чтобы не
+        // расширять окно; «✏️» — в общей колонке кнопок справа, как у остальных строк.
+        JPanel profilePanel = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+        profilePanel.add(newProfileBtn);
+        profilePanel.add(deleteProfileBtn);
+        profilePanel.add(profileCombo);
+
         c.gridx = 0;
         c.gridy = row;
         root.add(new JLabel("Профиль:"), c);
         c.gridx = 1;
-        root.add(profileCombo, c);
+        root.add(profilePanel, c);
         c.gridx = 2;
-        addButtons(root, c, newProfileBtn, deleteProfileBtn, renameProfileBtn);
+        addButtons(root, c, renameProfileBtn);
         row++;
 
         // Горячая клавиша
@@ -231,8 +244,13 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         c.gridx = 2;
         c.gridwidth = 1;
         c.anchor = GridBagConstraints.NORTHWEST;
-        addButtons(root, c, addKeyBtn, removeKeyBtn);
+        c.fill = GridBagConstraints.NONE;
+        JPanel keyButtons = new JPanel(new GridLayout(2, 1, 0, 4));
+        keyButtons.add(addKeyBtn);
+        keyButtons.add(removeKeyBtn);
+        root.add(keyButtons, c);
         c.anchor = GridBagConstraints.WEST;
+        c.fill = GridBagConstraints.HORIZONTAL;
         row++;
 
         // Статус + Вкл/Выкл
@@ -420,6 +438,20 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         button.setToolTipText(tooltip);
         button.setMargin(new Insets(2, 4, 2, 4));
         button.setPreferredSize(new Dimension(34, button.getPreferredSize().height));
+    }
+
+    /**
+     * Выровнять кнопки по ширине самой широкой из них. Ширина «Вкл/Выкл» берётся по
+     * исходной надписи, поэтому кнопка не «прыгает», когда та меняется на «Вкл»/«Выкл».
+     */
+    private static void sameWidth(JButton... buttons) {
+        int width = 0;
+        for (JButton b : buttons) {
+            width = Math.max(width, b.getPreferredSize().width);
+        }
+        for (JButton b : buttons) {
+            b.setPreferredSize(new Dimension(width, b.getPreferredSize().height));
+        }
     }
 
     /**
