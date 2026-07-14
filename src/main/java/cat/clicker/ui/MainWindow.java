@@ -4,6 +4,7 @@ import cat.clicker.config.Config;
 import cat.clicker.config.Config.KeyBinding;
 import cat.clicker.config.Config.Mode;
 import cat.clicker.config.ConfigStore;
+import cat.clicker.config.Profile;
 import cat.clicker.core.Clicker;
 import cat.clicker.core.HotkeyService;
 import cat.clicker.input.KeyMapper;
@@ -11,10 +12,12 @@ import cat.clicker.input.KeyMapper;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
+import javax.swing.DefaultComboBoxModel;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -49,7 +52,6 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
-import java.util.List;
 import java.util.function.Consumer;
 
 /**
@@ -65,17 +67,21 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
     private final HotkeyService hotkeys;
     private final Clicker clicker;
 
+    private final JComboBox<Profile> profileCombo = new JComboBox<>();
+    private final JButton newProfileBtn = new JButton("+");
+    private final JButton renameProfileBtn = new JButton("✏️");
+    private final JButton deleteProfileBtn = new JButton("−");
     private final JLabel hotkeyLabel = new JLabel();
     private final JLabel emergencyLabel = new JLabel();
-    private final JButton assignHotkeyBtn = new JButton("Назначить");
-    private final JButton assignEmergencyBtn = new JButton("Назначить");
+    private final JButton assignHotkeyBtn = new JButton("✏️");
+    private final JButton assignEmergencyBtn = new JButton("✏️");
     private final JRadioButton holdRadio = new JRadioButton("Удержание");
     private final JRadioButton toggleRadio = new JRadioButton("Переключение");
     private final JTextField delayField = new JTextField(6);
     private final DefaultListModel<KeyBinding> keysModel = new DefaultListModel<>();
     private final JList<KeyBinding> keysList = new JList<>(keysModel);
-    private final JButton addKeyBtn = new JButton("Добавить");
-    private final JButton removeKeyBtn = new JButton("Удалить");
+    private final JButton addKeyBtn = new JButton("+");
+    private final JButton removeKeyBtn = new JButton("−");
     private final JLabel statusLabel = new JLabel();
     private final JButton enableBtn = new JButton("Вкл/Выкл");
     private final JCheckBox alwaysOnTopCheck = new JCheckBox("Поверх всех окон");
@@ -90,11 +96,15 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
     /** Последнее валидное значение задержки — для отката неверного ввода (§3.6). */
     private int lastValidDelay;
 
+    /** Не реагировать на выбор в комбобоксе, пока он перезаполняется из конфига. */
+    private boolean suppressProfileEvents;
+
     /**
-     * Неизменяемый снимок списка клавиш для чтения с потока хука без гонок.
+     * Копия активного профиля для чтения с потока хука без гонок: там читаются
+     * клавиши, режим и задержка, а профиль может смениться прямо во время клика.
      * Обновляется на EDT при каждом изменении (заменой ссылки).
      */
-    private volatile List<KeyBinding> keysSnapshot = List.of();
+    private volatile Profile snapshot;
 
     public MainWindow(Config config, ConfigStore store, HotkeyService hotkeys, Clicker clicker) {
         super("ClickerCat");
@@ -102,7 +112,7 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         this.store = store;
         this.hotkeys = hotkeys;
         this.clicker = clicker;
-        this.lastValidDelay = config.delayMs;
+        this.lastValidDelay = config.active().delayMs;
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         buildUi();
@@ -110,8 +120,8 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         loadFromConfig();
 
         hotkeys.setListener(this);
-        hotkeys.setHotkey(config.hotkey);
-        hotkeys.setEmergencyStop(config.emergencyStop);
+        hotkeys.setHotkey(profile().hotkey);
+        hotkeys.setEmergencyStop(profile().emergencyStop);
         hotkeys.setEnabled(config.enabled);
 
         if (!hotkeys.isRegistered()) {
@@ -137,6 +147,25 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         c.fill = GridBagConstraints.HORIZONTAL;
 
         int row = 0;
+
+        // Профиль
+        profileCombo.setRenderer(new ProfileRenderer());
+        compact(newProfileBtn, "Создать профиль");
+        compact(deleteProfileBtn, "Удалить текущий профиль");
+        compact(renameProfileBtn, "Переименовать профиль");
+        compact(assignHotkeyBtn, "Назначить горячую клавишу");
+        compact(assignEmergencyBtn, "Назначить клавишу аварийной остановки");
+        compact(addKeyBtn, "Добавить клавишу");
+        compact(removeKeyBtn, "Удалить выбранную клавишу (Delete)");
+
+        c.gridx = 0;
+        c.gridy = row;
+        root.add(new JLabel("Профиль:"), c);
+        c.gridx = 1;
+        root.add(profileCombo, c);
+        c.gridx = 2;
+        addButtons(root, c, newProfileBtn, deleteProfileBtn, renameProfileBtn);
+        row++;
 
         // Горячая клавиша
         addRow(root, c, row++, new JLabel("Горячая клавиша:"), boxed(hotkeyLabel), assignHotkeyBtn);
@@ -195,20 +224,16 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         c.gridx = 0;
         c.gridy = row;
         c.gridwidth = 2;
-        c.gridheight = 2;
         c.fill = GridBagConstraints.BOTH;
         root.add(scroll, c);
-        c.gridheight = 1;
         c.fill = GridBagConstraints.HORIZONTAL;
 
         c.gridx = 2;
-        c.gridy = row;
         c.gridwidth = 1;
-        root.add(addKeyBtn, c);
-        c.gridx = 2;
-        c.gridy = row + 1;
-        root.add(removeKeyBtn, c);
-        row += 2;
+        c.anchor = GridBagConstraints.NORTHWEST;
+        addButtons(root, c, addKeyBtn, removeKeyBtn);
+        c.anchor = GridBagConstraints.WEST;
+        row++;
 
         // Статус + Вкл/Выкл
         c.gridx = 0;
@@ -217,7 +242,7 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         root.add(statusLabel, c);
         c.gridx = 2;
         c.gridwidth = 1;
-        root.add(enableBtn, c);
+        addButtons(root, c, enableBtn);
 
         setContentPane(root);
 
@@ -225,6 +250,19 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
     }
 
     private void wireActions() {
+        profileCombo.addActionListener(e -> {
+            if (suppressProfileEvents) {
+                return;
+            }
+            Profile selected = (Profile) profileCombo.getSelectedItem();
+            if (selected != null && !selected.name.equals(config.activeProfile)) {
+                switchProfile(selected);
+            }
+        });
+        newProfileBtn.addActionListener(e -> createProfile());
+        renameProfileBtn.addActionListener(e -> renameProfile());
+        deleteProfileBtn.addActionListener(e -> deleteProfile());
+
         assignHotkeyBtn.addActionListener(e -> beginCapture(Role.TRIGGER));
         assignEmergencyBtn.addActionListener(e -> beginCapture(Role.EMERGENCY));
         addKeyBtn.addActionListener(e -> beginCapture(Role.LIST));
@@ -243,11 +281,11 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         });
 
         holdRadio.addActionListener(e -> {
-            config.mode = Mode.HOLD;
+            profile().mode = Mode.HOLD;
             persist();
         });
         toggleRadio.addActionListener(e -> {
-            config.mode = Mode.TOGGLE;
+            profile().mode = Mode.TOGGLE;
             persist();
         });
 
@@ -264,9 +302,98 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         alwaysOnTopCheck.addActionListener(e -> {
             boolean on = alwaysOnTopCheck.isSelected();
             setAlwaysOnTop(on);
-            config.alwaysOnTop = on;
+            profile().alwaysOnTop = on;
             persist();
         });
+    }
+
+    // ---- профили ------------------------------------------------------------
+
+    /** Активный профиль: все настройки, кроме главного выключателя, живут в нём. */
+    private Profile profile() {
+        return config.active();
+    }
+
+    /**
+     * Сделать профиль активным. Текущее кликанье при этом останавливается: новый профиль
+     * может задавать другие клавиши, задержку и режим.
+     */
+    private void switchProfile(Profile target) {
+        clicker.stop();
+        config.activeProfile = target.name;
+        hotkeys.setHotkey(target.hotkey);
+        hotkeys.setEmergencyStop(target.emergencyStop);
+        lastValidDelay = target.delayMs;
+        loadFromConfig();
+        persist();
+    }
+
+    private void createProfile() {
+        String name = askProfileName("Имя нового профиля:", "");
+        if (name == null) {
+            return;
+        }
+        Profile created = Profile.defaults(name);
+        config.profiles.add(created);
+        switchProfile(created);
+    }
+
+    private void renameProfile() {
+        Profile current = profile();
+        String name = askProfileName("Новое имя профиля:", current.name);
+        if (name == null) {
+            return;
+        }
+        current.name = name;
+        config.activeProfile = name;
+        loadFromConfig();
+        persist();
+    }
+
+    private void deleteProfile() {
+        if (config.profiles.size() <= 1) {
+            JOptionPane.showMessageDialog(this,
+                    "Это последний профиль — должен остаться хотя бы один.",
+                    "Нельзя удалить", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        Profile current = profile();
+        int answer = JOptionPane.showConfirmDialog(this,
+                "Удалить профиль «" + current.name + "»?",
+                "Удаление профиля", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+        if (answer != JOptionPane.YES_OPTION) {
+            return;
+        }
+        config.profiles.remove(current);
+        switchProfile(config.profiles.get(0));
+    }
+
+    /**
+     * Запросить имя профиля с проверкой (§3.4-стиль: непустое и уникальное).
+     *
+     * @return имя либо null, если пользователь отменил ввод или имя не прошло проверку.
+     */
+    private String askProfileName(String message, String initial) {
+        Object input = JOptionPane.showInputDialog(this, message, "Профиль",
+                JOptionPane.QUESTION_MESSAGE, null, null, initial);
+        if (input == null) {
+            return null;
+        }
+        String name = input.toString().trim();
+        if (name.equals(initial)) {
+            return null; // имя не изменилось — делать нечего
+        }
+        if (name.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Имя профиля не может быть пустым.",
+                    "Неверное имя", JOptionPane.WARNING_MESSAGE);
+            return null;
+        }
+        if (config.hasProfile(name)) {
+            JOptionPane.showMessageDialog(this, "Профиль с именем «" + name + "» уже существует.",
+                    "Неверное имя", JOptionPane.WARNING_MESSAGE);
+            return null;
+        }
+        return name;
     }
 
     /** Переключить главный выключатель механизма (кнопка/трей) и обновить UI. */
@@ -288,6 +415,25 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         updateStatus();
     }
 
+    /** Кнопка-символ («+», «−», «✏️»): узкая, с подсказкой вместо надписи. */
+    private static void compact(JButton button, String tooltip) {
+        button.setToolTipText(tooltip);
+        button.setMargin(new Insets(2, 4, 2, 4));
+        button.setPreferredSize(new Dimension(34, button.getPreferredSize().height));
+    }
+
+    /**
+     * Положить кнопки в ячейку, не давая GridBagLayout растянуть их по её ширине:
+     * тянется только панель, кнопки внутри сохраняют свой размер.
+     */
+    private static void addButtons(JPanel root, GridBagConstraints c, JButton... buttons) {
+        JPanel panel = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+        for (JButton b : buttons) {
+            panel.add(b);
+        }
+        root.add(panel, c);
+    }
+
     private static JComponent boxed(JLabel label) {
         label.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createEtchedBorder(),
@@ -296,7 +442,7 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
     }
 
     private void addRow(JPanel root, GridBagConstraints c, int row,
-                        JComponent label, JComponent value, JComponent button) {
+                        JComponent label, JComponent value, JButton button) {
         c.gridx = 0;
         c.gridy = row;
         c.gridwidth = 1;
@@ -304,22 +450,32 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         c.gridx = 1;
         root.add(value, c);
         c.gridx = 2;
-        root.add(button, c);
+        addButtons(root, c, button);
     }
 
     private void loadFromConfig() {
-        hotkeyLabel.setText(KeyMapper.displayName(config.hotkey));
-        emergencyLabel.setText(KeyMapper.displayName(config.emergencyStop));
-        holdRadio.setSelected(config.mode == Mode.HOLD);
-        toggleRadio.setSelected(config.mode == Mode.TOGGLE);
-        delayField.setText(Integer.toString(config.delayMs));
-        alwaysOnTopCheck.setSelected(config.alwaysOnTop);
-        setAlwaysOnTop(config.alwaysOnTop);
+        Profile p = profile();
+
+        suppressProfileEvents = true;
+        try {
+            profileCombo.setModel(new DefaultComboBoxModel<>(config.profiles.toArray(new Profile[0])));
+            profileCombo.setSelectedItem(p);
+        } finally {
+            suppressProfileEvents = false;
+        }
+
+        hotkeyLabel.setText(KeyMapper.displayName(p.hotkey));
+        emergencyLabel.setText(KeyMapper.displayName(p.emergencyStop));
+        holdRadio.setSelected(p.mode == Mode.HOLD);
+        toggleRadio.setSelected(p.mode == Mode.TOGGLE);
+        delayField.setText(Integer.toString(p.delayMs));
+        alwaysOnTopCheck.setSelected(p.alwaysOnTop);
+        setAlwaysOnTop(p.alwaysOnTop);
         keysModel.clear();
-        for (KeyBinding kb : config.keys) {
+        for (KeyBinding kb : p.keys) {
             keysModel.addElement(kb);
         }
-        refreshKeysSnapshot();
+        refreshSnapshot();
         updateStatus();
     }
 
@@ -358,33 +514,38 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
 
         switch (role) {
             case TRIGGER -> {
-                config.hotkey = binding;
+                profile().hotkey = binding;
                 hotkeys.setHotkey(binding);
                 hotkeyLabel.setText(KeyMapper.displayName(binding));
             }
             case EMERGENCY -> {
-                config.emergencyStop = binding;
+                profile().emergencyStop = binding;
                 hotkeys.setEmergencyStop(binding);
                 emergencyLabel.setText(KeyMapper.displayName(binding));
             }
             case LIST -> {
-                config.keys.add(binding);
+                profile().keys.add(binding);
                 keysModel.addElement(binding);
-                refreshKeysSnapshot();
             }
         }
         persist();
     }
 
-    /** Проверка взаимоисключения ролей (§3.8). @return сообщение об ошибке или null. */
+    /**
+     * Проверка взаимоисключения ролей (§3.8) — в пределах активного профиля: профили
+     * независимы, одна и та же клавиша может быть триггером в одном и нажатием в другом.
+     *
+     * @return сообщение об ошибке или null.
+     */
     private String conflictMessage(KeyBinding candidate, Role assigning) {
-        if (assigning != Role.TRIGGER && candidate.equals(config.hotkey)) {
+        Profile p = profile();
+        if (assigning != Role.TRIGGER && candidate.equals(p.hotkey)) {
             return "Эта клавиша уже назначена как горячая клавиша срабатывания.";
         }
-        if (assigning != Role.EMERGENCY && candidate.equals(config.emergencyStop)) {
+        if (assigning != Role.EMERGENCY && candidate.equals(p.emergencyStop)) {
             return "Эта клавиша уже назначена как аварийная остановка.";
         }
-        if (config.keys.contains(candidate)) {
+        if (p.keys.contains(candidate)) {
             return "Эта клавиша уже есть в списке нажатий.";
         }
         return null;
@@ -402,8 +563,7 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
             return;
         }
         KeyBinding removed = keysModel.remove(idx);
-        config.keys.remove(removed);
-        refreshKeysSnapshot();
+        profile().keys.remove(removed);
         persist();
     }
 
@@ -416,21 +576,23 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
             if (value < Config.MIN_DELAY_MS || value > Config.MAX_DELAY_MS) {
                 throw new NumberFormatException("вне диапазона");
             }
-            if (value != config.delayMs) {
-                config.delayMs = value;
+            if (value != profile().delayMs) {
+                profile().delayMs = value;
                 lastValidDelay = value;
                 persist();
             }
         } catch (NumberFormatException ex) {
             // откат к последнему валидному значению
             delayField.setText(Integer.toString(lastValidDelay));
-            config.delayMs = lastValidDelay;
+            profile().delayMs = lastValidDelay;
         }
     }
 
     // ---- сохранение / состояние --------------------------------------------
 
+    /** Сохранить конфиг; вызывается при каждом изменении (§3.9), заодно обновляет снимок. */
     private void persist() {
+        refreshSnapshot();
         try {
             store.save(config);
         } catch (IOException e) {
@@ -440,15 +602,15 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         }
     }
 
-    private void refreshKeysSnapshot() {
-        keysSnapshot = List.copyOf(config.keys);
-    }
-
-    private List<KeyBinding> currentKeys() {
-        return keysSnapshot;
+    private void refreshSnapshot() {
+        snapshot = profile().copy();
     }
 
     private void setControlsEnabled(boolean enabled) {
+        profileCombo.setEnabled(enabled);
+        newProfileBtn.setEnabled(enabled);
+        renameProfileBtn.setEnabled(enabled);
+        deleteProfileBtn.setEnabled(enabled);
         assignHotkeyBtn.setEnabled(enabled);
         assignEmergencyBtn.setEnabled(enabled);
         addKeyBtn.setEnabled(enabled);
@@ -603,13 +765,14 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
 
     @Override
     public void onTriggerPressed() {
-        if (config.mode == Mode.HOLD) {
-            clicker.start(currentKeys(), config.delayMs);
+        Profile p = snapshot;
+        if (p.mode == Mode.HOLD) {
+            clicker.start(p.keys, p.delayMs);
         } else {
             if (clicker.isRunning()) {
                 clicker.stop();
             } else {
-                clicker.start(currentKeys(), config.delayMs);
+                clicker.start(p.keys, p.delayMs);
             }
         }
         SwingUtilities.invokeLater(this::updateStatus);
@@ -617,7 +780,7 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
 
     @Override
     public void onTriggerReleased() {
-        if (config.mode == Mode.HOLD) {
+        if (snapshot.mode == Mode.HOLD) {
             clicker.stop();
             SwingUtilities.invokeLater(this::updateStatus);
         }
@@ -638,6 +801,18 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof KeyBinding kb) {
                 setText(KeyMapper.displayName(kb));
+            }
+            return this;
+        }
+    }
+
+    private static final class ProfileRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                      boolean isSelected, boolean cellHasFocus) {
+            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            if (value instanceof Profile p) {
+                setText(p.name);
             }
             return this;
         }

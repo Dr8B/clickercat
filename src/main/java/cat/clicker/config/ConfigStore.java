@@ -155,18 +155,30 @@ public class ConfigStore {
 
     private static Map<String, Object> toMap(Config c) {
         Map<String, Object> root = new LinkedHashMap<>();
-        root.put("hotkey", bindingToMap(c.hotkey));
-        root.put("emergencyStop", bindingToMap(c.emergencyStop));
-        root.put("mode", c.mode.name());
-        root.put("delayMs", c.delayMs);
+        root.put("enabled", c.enabled);
+        root.put("activeProfile", c.activeProfile);
+        List<Object> profiles = new ArrayList<>();
+        for (Profile p : c.profiles) {
+            profiles.add(profileToMap(p));
+        }
+        root.put("profiles", profiles);
+        return root;
+    }
+
+    private static Map<String, Object> profileToMap(Profile p) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("name", p.name);
+        m.put("hotkey", bindingToMap(p.hotkey));
+        m.put("emergencyStop", bindingToMap(p.emergencyStop));
+        m.put("mode", p.mode.name());
+        m.put("delayMs", p.delayMs);
         List<Object> keys = new ArrayList<>();
-        for (KeyBinding kb : c.keys) {
+        for (KeyBinding kb : p.keys) {
             keys.add(bindingToMap(kb));
         }
-        root.put("keys", keys);
-        root.put("alwaysOnTop", c.alwaysOnTop);
-        root.put("enabled", c.enabled);
-        return root;
+        m.put("keys", keys);
+        m.put("alwaysOnTop", p.alwaysOnTop);
+        return m;
     }
 
     private static Map<String, Object> bindingToMap(KeyBinding kb) {
@@ -183,14 +195,58 @@ public class ConfigStore {
             throw new InvalidConfigException("Корень конфига должен быть отображением (mapping).");
         }
         Config c = new Config();
-        c.hotkey = parseBinding(map.get("hotkey"), "hotkey");
-        c.emergencyStop = parseBinding(map.get("emergencyStop"), "emergencyStop");
-        c.mode = parseMode(map.get("mode"));
-        c.delayMs = parseDelay(map.get("delayMs"));
-        c.keys = parseKeys(map.get("keys"));
-        c.alwaysOnTop = parseAlwaysOnTop(map.get("alwaysOnTop"));
         c.enabled = parseEnabled(map.get("enabled"));
+
+        // Старый формат (до профилей): настройки лежат прямо в корне — заворачиваем
+        // их в единственный профиль. Файл перепишется в новом формате при первом сохранении.
+        if (map.get("profiles") == null) {
+            c.profiles.add(parseProfile(map, Profile.DEFAULT_NAME, "конфиг"));
+            c.activeProfile = Profile.DEFAULT_NAME;
+            return c;
+        }
+
+        if (!(map.get("profiles") instanceof List<?> list) || list.isEmpty()) {
+            throw new InvalidConfigException("Поле 'profiles' должно быть непустым списком.");
+        }
+        int i = 0;
+        for (Object item : list) {
+            String where = "profiles[" + i + "]";
+            if (!(item instanceof Map<?, ?> pm)) {
+                throw new InvalidConfigException("Элемент '" + where + "' должен быть отображением (mapping).");
+            }
+            String name = parseName(pm.get("name"), where);
+            if (c.hasProfile(name)) {
+                throw new InvalidConfigException("Имена профилей должны быть уникальными; повтор: " + name);
+            }
+            c.profiles.add(parseProfile(pm, name, where));
+            i++;
+        }
+
+        // Имя может отсутствовать или не совпадать ни с одним профилем (ручная правка файла) —
+        // это не ошибка: Config.active() в таком случае вернёт первый профиль.
+        Object active = map.get("activeProfile");
+        c.activeProfile = active instanceof String s ? s : c.profiles.get(0).name;
         return c;
+    }
+
+    private static Profile parseProfile(Map<?, ?> map, String name, String where)
+            throws InvalidConfigException {
+        Profile p = new Profile();
+        p.name = name;
+        p.hotkey = parseBinding(map.get("hotkey"), where + ".hotkey");
+        p.emergencyStop = parseBinding(map.get("emergencyStop"), where + ".emergencyStop");
+        p.mode = parseMode(map.get("mode"), where);
+        p.delayMs = parseDelay(map.get("delayMs"), where);
+        p.keys = parseKeys(map.get("keys"), where);
+        p.alwaysOnTop = parseAlwaysOnTop(map.get("alwaysOnTop"));
+        return p;
+    }
+
+    private static String parseName(Object value, String where) throws InvalidConfigException {
+        if (!(value instanceof String s) || s.isBlank()) {
+            throw new InvalidConfigException("Поле '" + where + ".name' должно быть непустой строкой.");
+        }
+        return s;
     }
 
     private static KeyBinding parseBinding(Object value, String field) throws InvalidConfigException {
@@ -211,23 +267,23 @@ public class ConfigStore {
         return new KeyBinding(type, codeStr);
     }
 
-    private static Mode parseMode(Object value) throws InvalidConfigException {
+    private static Mode parseMode(Object value, String where) throws InvalidConfigException {
         if (!(value instanceof String s)) {
-            throw new InvalidConfigException("Поле 'mode' отсутствует или не является строкой.");
+            throw new InvalidConfigException("Поле '" + where + ".mode' отсутствует или не является строкой.");
         }
         try {
             return Mode.valueOf(s);
         } catch (IllegalArgumentException e) {
-            throw new InvalidConfigException("Недопустимый mode: " + s);
+            throw new InvalidConfigException("Недопустимый mode в '" + where + "': " + s);
         }
     }
 
-    private static int parseDelay(Object value) throws InvalidConfigException {
+    private static int parseDelay(Object value, String where) throws InvalidConfigException {
         if (!(value instanceof Integer delay)) {
-            throw new InvalidConfigException("Поле 'delayMs' отсутствует или не является целым числом.");
+            throw new InvalidConfigException("Поле '" + where + ".delayMs' отсутствует или не является целым числом.");
         }
         if (delay < Config.MIN_DELAY_MS || delay > Config.MAX_DELAY_MS) {
-            throw new InvalidConfigException("delayMs вне диапазона " + Config.MIN_DELAY_MS
+            throw new InvalidConfigException("delayMs в '" + where + "' вне диапазона " + Config.MIN_DELAY_MS
                     + ".." + Config.MAX_DELAY_MS + ": " + delay);
         }
         return delay;
@@ -246,14 +302,14 @@ public class ConfigStore {
         return !(value instanceof Boolean b) || b;
     }
 
-    private static List<KeyBinding> parseKeys(Object value) throws InvalidConfigException {
+    private static List<KeyBinding> parseKeys(Object value, String where) throws InvalidConfigException {
         if (!(value instanceof List<?> list) || list.isEmpty()) {
-            throw new InvalidConfigException("Поле 'keys' должно быть непустым списком.");
+            throw new InvalidConfigException("Поле '" + where + ".keys' должно быть непустым списком.");
         }
         List<KeyBinding> keys = new ArrayList<>();
         int i = 0;
         for (Object item : list) {
-            keys.add(parseBinding(item, "keys[" + i + "]"));
+            keys.add(parseBinding(item, where + ".keys[" + i + "]"));
             i++;
         }
         return keys;

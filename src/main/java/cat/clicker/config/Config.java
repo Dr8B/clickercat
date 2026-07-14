@@ -5,7 +5,8 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * POJO-модель всех настроек приложения.
+ * POJO-модель всех настроек приложения: список {@link Profile} плюс то немногое,
+ * что общее для всего приложения.
  *
  * <p>Содержит вложенные перечисления {@link InputType} / {@link Mode} и тип
  * {@link KeyBinding} — единое представление «клавиша клавиатуры или кнопка мыши».
@@ -64,13 +65,10 @@ public class Config {
         }
     }
 
-    public KeyBinding hotkey;
-    public KeyBinding emergencyStop;
-    public Mode mode;
-    public int delayMs;
-    public List<KeyBinding> keys = new ArrayList<>();
-    /** Держать главное окно поверх всех остальных окон. */
-    public boolean alwaysOnTop;
+    /** Профили; список всегда непустой. */
+    public List<Profile> profiles = new ArrayList<>();
+    /** Имя активного профиля. */
+    public String activeProfile;
     /**
      * Главный выключатель всего механизма (§ кнопка «Вкл/Выкл»). Когда {@code false},
      * кликер полностью приостановлен: горячие клавиши не срабатывают и не мешают работе.
@@ -81,30 +79,32 @@ public class Config {
     public static final int MAX_DELAY_MS = 10_000;
     public static final int DEFAULT_DELAY_MS = 100;
 
-    /** Значения по умолчанию (см. §5.1 ТЗ). */
+    /** Значения по умолчанию (см. §5.1 ТЗ): один профиль. */
     public static Config defaults() {
         Config c = new Config();
-        c.hotkey = new KeyBinding(InputType.KEYBOARD, "VC_F6");
-        c.emergencyStop = new KeyBinding(InputType.KEYBOARD, "VC_ESCAPE");
-        c.mode = Mode.HOLD;
-        c.delayMs = DEFAULT_DELAY_MS;
-        c.keys = new ArrayList<>();
-        c.keys.add(new KeyBinding(InputType.MOUSE, "BUTTON1"));
-        c.alwaysOnTop = false;
+        c.profiles.add(Profile.defaults(Profile.DEFAULT_NAME));
+        c.activeProfile = Profile.DEFAULT_NAME;
         c.enabled = true;
         return c;
     }
 
-    /** Глубокая копия — UI работает с собственным экземпляром настроек. */
-    public Config copy() {
-        Config c = new Config();
-        c.hotkey = hotkey;
-        c.emergencyStop = emergencyStop;
-        c.mode = mode;
-        c.delayMs = delayMs;
-        c.keys = new ArrayList<>(keys);
-        c.alwaysOnTop = alwaysOnTop;
-        c.enabled = enabled;
-        return c;
+    /** Активный профиль; если имя не найдено (правка файла вручную) — первый по списку. */
+    public Profile active() {
+        for (Profile p : profiles) {
+            if (p.name.equals(activeProfile)) {
+                return p;
+            }
+        }
+        return profiles.get(0);
+    }
+
+    /** Есть ли уже профиль с таким именем (имена уникальны). */
+    public boolean hasProfile(String name) {
+        for (Profile p : profiles) {
+            if (p.name.equals(name)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
