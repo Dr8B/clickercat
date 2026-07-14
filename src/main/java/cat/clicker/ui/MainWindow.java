@@ -8,6 +8,7 @@ import cat.clicker.core.Clicker;
 import cat.clicker.core.HotkeyService;
 import cat.clicker.input.KeyMapper;
 
+import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.DefaultListCellRenderer;
@@ -23,6 +24,7 @@ import javax.swing.JPanel;
 import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
 import javax.swing.JTextField;
+import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import java.awt.AWTException;
 import java.awt.Color;
@@ -39,8 +41,10 @@ import java.awt.PopupMenu;
 import java.awt.RenderingHints;
 import java.awt.SystemTray;
 import java.awt.TrayIcon;
+import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
@@ -225,6 +229,18 @@ public class MainWindow extends JFrame implements HotkeyService.Listener {
         assignEmergencyBtn.addActionListener(e -> beginCapture(Role.EMERGENCY));
         addKeyBtn.addActionListener(e -> beginCapture(Role.LIST));
         removeKeyBtn.addActionListener(e -> removeSelectedKey());
+
+        // Delete на выделенном элементе списка — то же, что кнопка «Удалить».
+        keysList.getInputMap(JComponent.WHEN_FOCUSED)
+                .put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "removeKey");
+        keysList.getActionMap().put("removeKey", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (removeKeyBtn.isEnabled()) {
+                    removeSelectedKey();
+                }
+            }
+        });
 
         holdRadio.addActionListener(e -> {
             config.mode = Mode.HOLD;
